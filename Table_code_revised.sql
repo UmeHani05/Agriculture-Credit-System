@@ -15,10 +15,20 @@ CREATE TYPE land_type AS ENUM('Irrigated', 'Non-Irrigated', 'Pasture');
 CREATE TYPE claim_collateral AS ENUM('Claimed', 'Non-Claimed', 'Partially Claimed');
 --UUID-> Universally Unique Identifier, a 128-bit number used to uniquely identify information in computer systems. 
 ---It is useful for security, scalabilty and effects the performance of the database.
+
+CREATE TABLE Banks(--Centralized banking as we need to keep track of the banks and their relationship with the farmers and the loans.
+    bank_id UUID PRIMARY KEY DEFAULT gen_uuid7(),
+    bank_name VARCHAR(150) NOT NULL UNIQUE,
+    headquarters_address VARCHAR(255),
+    branch_id VARCHAR(50) NOT NULL UNIQUE,
+    contact_number VARCHAR(20)
+);
 --changed the name from User to UserAccounts 
 CREATE TABLE UserAccounts (
    user_id       UUID PRIMARY KEY DEFAULT gen_uuidv7(),--as for security and scalability
-   Bank_name          VARCHAR(150)    NOT NULL,
+   bank_id       UUID            NOT NULL REFERENCES Banks(bank_id) ON DELETE CASCADE,
+--    bank_name          VARCHAR(150)    NOT NULL REFERENCES Banks(bank_name),--this should be imported from Banks-not sure
+   bank_name          VARCHAR(150)    NOT NULL, --this should be imported from Banks
    username TEXT            NOT NULL UNIQUE,
     role               user_role       NOT NULL,
    password_hash      TEXT            NOT NULL--hash value stored with password hashing algorithm and with salt
@@ -72,6 +82,8 @@ CREATE TABLE LoanApplication (
     fraud_alert       BOOLEAN             NOT NULL DEFAULT FALSE,--not sure
     risk_score        NUMERIC(5, 2),    ---not sure               
     application_date  DATE                NOT NULL DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,--added timestamp as importnat feature 
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status_application            app_status  NOT NULL DEFAULT 'Pending' --naya seekha hai values dalne ke baad hi pata chalega
 );
 --loan table
@@ -92,6 +104,8 @@ CREATE TABLE Payment (
     loan_id         INT             NOT NULL REFERENCES Loan(loan_id) ON DELETE RESTRICT,
     amount_paid     NUMERIC(15, 2)  NOT NULL CHECK (amount_paid > 0),
     payment_date    DATE            NOT NULL DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     payment_method  payment_method  NOT NULL
 );
 
@@ -102,6 +116,8 @@ CREATE TABLE Transaction (
     type            trans_type    NOT NULL, --enum use kiya hai and type kyunke mujhe kuch aur nahi yaad
     amount          NUMERIC(15, 2)      NOT NULL CHECK (amount > 0),
     date            DATE                NOT NULL DEFAULT CURRENT_DATE,
+    transferred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status_trans          trans_status  NOT NULL DEFAULT 'Pending'
 );
 --Fraud Table
