@@ -17,23 +17,23 @@ CREATE TYPE claim_collateral AS ENUM('Claimed', 'Non-Claimed', 'Partially Claime
 ---It is useful for security, scalabilty and effects the performance of the database.
 --changed the name from User to UserAccounts 
 CREATE TABLE UserAccounts (
-   user_id       UUID PRIMARY KEY DEFAULT gen_uuidv7(),
+   user_id       UUID PRIMARY KEY DEFAULT gen_uuidv7(),--as for security and scalability
    Bank_name          VARCHAR(150)    NOT NULL,
    username TEXT            NOT NULL UNIQUE,
     role               user_role       NOT NULL,
-   password_hash      TEXT            NOT NULL
+   password_hash      TEXT            NOT NULL--hash value stored with password hashing algorithm and with salt
 );
 -- ADded Gurantor to keep track for gurantors.
-CREATE TABLE Gurantor(
+CREATE TABLE Gurantor(--its needed as we need to keep track of the gurantors and their relationship with the farmers and the loans. It will also help with fraud detection and risk assessment.
 gurantor_id UUID PRIMARY KEY DEFAULT gen_uuidv7(),
 loan_id     INT             NOT NULL REFERENCES Loan(loan_id) ON DELETE CASCADE,
 cnic        VARCHAR(15)     NOT NULL UNIQUE,
 phone       VARCHAR(20),
-relationship VARCHAR(50),
-status_gurantor status_gurantor NOT NULL DEFAULT 'Accepted'
+relationship VARCHAR(50),--realtionship with farmer (we can also make this enum)
+status_gurantor status_gurantor NOT NULL DEFAULT 'Accepted'--gurantor can accept or reject the guarantorship
 );
 CREATE TABLE Farmer (
-    farmer_id        UUID PRIMARY KEY DEFAULT gen_uuidv7(),
+    farmer_id        UUID PRIMARY KEY DEFAULT gen_uuidv7(),--as for security and scalability
     name              VARCHAR(150)    NOT NULL,
     cnic              VARCHAR(15)     NOT NULL UNIQUE, 
     phone             VARCHAR(20),
@@ -41,19 +41,19 @@ CREATE TABLE Farmer (
     registration_date DATE            NOT NULL DEFAULT CURRENT_DATE,
 	collateral_id      INT            REFERENCES Collateral(collateral_id) ON DELETE SET NULL,
 	gurantor_id UUID REFERENCES Gurantor(gurantor_id) ON DELETE SET NULL,
-	Eligibility		BOOL,--not sure
+	Eligibility		BOOL,--not sure--YES /NO
 	Fraud_alert     BOOL,--not sure
     Credit_History  BOOL--not sure
 );
 --added land as collateral
 --will help with fraud detection
-CREATE TABLE Collateral(
+CREATE TABLE Collateral(--important as if we add only a attribute it will not work as we need to keep track of the collateral and its relationship with the farmers and the loans. It will also help with fraud detection and risk assessment.
 collateral_id SERIAL PRIMARY KEY,
 loan_id     INT             NOT NULL REFERENCES Loan(loan_id) ON DELETE CASCADE,
 farmer_id   INT             NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
-land_value   NUMERIC(15, 2)  NOT NULL CHECK (land_value > 0),
-land_type  land_type NOT NULL,
-claim_collateral claim_collateral NOT NULL DEFAULT 'Non-Claimed'
+land_value   NUMERIC(15, 2)  NOT NULL CHECK (land_value > 0),--better than land size as it can be used for risk assessment and loan approval process
+land_type  land_type NOT NULL,--land type as most banks use value of land as collateral and it can be used for risk assessment and loan approval process
+claim_collateral claim_collateral NOT NULL DEFAULT 'Non-Claimed' --for detection whether if any bank has already claimed it as a collateral or not
 );
 --riskscore
 CREATE TABLE RiskScore (
