@@ -1,7 +1,8 @@
 --commands From this website
 -- https://www.postgresql.org/docs/current/sql-commands.html
 --enums are used for fixed "option" style inputs
-
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
 CREATE TYPE app_status  AS ENUM ('Pending', 'Approved', 'Rejected');
 CREATE TYPE loan_status          AS ENUM ('Active', 'Closed');
 CREATE TYPE payment_method       AS ENUM ('Cash', 'Online');
@@ -9,12 +10,9 @@ CREATE TYPE trans_type     AS ENUM ('Loan', 'Payment');
 CREATE TYPE trans_status   AS ENUM ('Completed', 'Pending');
 CREATE TYPE user_role            AS ENUM ('Admin', 'Loan Officer','Credit Analyst');
 CREATE TYPE invoice_status       AS ENUM ('Paid', 'Overdue');
-CREATE TYPE fraud_status   AS ENUM ('Detected', 'Undetected');
-CREATE TYPE status_gurantor AS ENUM('Accepted', 'Rejected');
-CREATE TYPE land_type AS ENUM('Irrigated', 'Non-Irrigated', 'Pasture');
-CREATE TYPE claim_collateral AS ENUM('Claimed', 'Non-Claimed', 'Partially Claimed');
---UUID-> Universally Unique Identifier, a 128-bit number used to uniquely identify information in computer systems. 
----It is useful for security, scalabilty and effects the performance of the database.
+--changed from "Detected" to "Pending" kyunke fraud alert ke liye pending zyada sahi lagta hai, aur verified/dismissed uske baad aayenge
+CREATE TYPE fraud_status AS ENUM ('Pending', 'Verified', 'Dismissed'); 
+
 
 CREATE TABLE Banks(--Centralized banking as we need to keep track of the banks and their relationship with the farmers and the loans.
     bank_id UUID PRIMARY KEY DEFAULT gen_uuid7(),
@@ -42,6 +40,7 @@ phone       VARCHAR(20),
 relationship VARCHAR(50),--realtionship with farmer (we can also make this enum)
 status_gurantor status_gurantor NOT NULL DEFAULT 'Accepted'--gurantor can accept or reject the guarantorship
 );
+
 CREATE TABLE Farmer (
     farmer_id        UUID PRIMARY KEY DEFAULT gen_uuidv7(),--as for security and scalability
     name              VARCHAR(150)    NOT NULL,
@@ -49,38 +48,40 @@ CREATE TABLE Farmer (
     phone             VARCHAR(20),
     address           TEXT,
     registration_date DATE            NOT NULL DEFAULT CURRENT_DATE,
-	collateral_id      INT            REFERENCES Collateral(collateral_id) ON DELETE SET NULL,
-	gurantor_id UUID REFERENCES Gurantor(gurantor_id) ON DELETE SET NULL,
-	Eligibility		BOOL,--not sure--YES /NO
-	Fraud_alert     BOOL,--not sure
-    Credit_History  BOOL--not sure
+	Land 			FLOAT(1),
+	Credit_History  BOOL,
+	Guarantors      VARCHAR(150),
+	Eligibility		BOOL
+	--removed the fraud alert column from farmer table because it can be determined from the transactions and fraud alert tables, and it would be redundant to keep it in the farmer table. Instead, we can calculate the fraud alert status for a farmer based on their transactions and any associated fraud alerts.		
 );
---added land as collateral
---will help with fraud detection
-CREATE TABLE Collateral(--important as if we add only a attribute it will not work as we need to keep track of the collateral and its relationship with the farmers and the loans. It will also help with fraud detection and risk assessment.
-collateral_id SERIAL PRIMARY KEY,
-loan_id     INT             NOT NULL REFERENCES Loan(loan_id) ON DELETE CASCADE,
-farmer_id   INT             NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
-land_value   NUMERIC(15, 2)  NOT NULL CHECK (land_value > 0),--better than land size as it can be used for risk assessment and loan approval process
-land_type  land_type NOT NULL,--land type as most banks use value of land as collateral and it can be used for risk assessment and loan approval process
-claim_collateral claim_collateral NOT NULL DEFAULT 'Non-Claimed' --for detection whether if any bank has already claimed it as a collateral or not
+
+-- i added this table to keep track of the land details of the farmers, which can be useful for loan eligibility and risk assessment. It has a foreign key reference to the Farmer table, so if a farmer is deleted, their land records will also be deleted (ON DELETE CASCADE).
+--we can check this later
+CREATE TABLE Land (
+    land_id SERIAL PRIMARY KEY,
+    farmer_id INT REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
+    area NUMERIC(10,2),
+    location TEXT,
+    soil_type TEXT
 );
---riskscore
+
+--idk how to incorporate this into the bank thingy
+
 CREATE TABLE RiskScore (
     risk_id          SERIAL          PRIMARY KEY,
     farmer_id        INT             NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,  --delete kyunke faida nahi isse rakhne ka
     score_value      NUMERIC(5, 2)   NOT NULL,  
     calculated_date  DATE            NOT NULL DEFAULT CURRENT_DATE,
     remarks          TEXT
-);
---loan application table
+	);
+ 
 CREATE TABLE LoanApplication (
     application_id     UUID PRIMARY KEY DEFAULT gen_uuidv7(),
     farmer_id         INT                 NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
     requested_amount  NUMERIC(15, 2)      NOT NULL,
     purpose           TEXT,
-    fraud_alert       BOOLEAN             NOT NULL DEFAULT FALSE,--not sure
-    risk_score        NUMERIC(5, 2),    ---not sure               
+    --here too
+    risk_score        NUMERIC(5, 2),                   
     application_date  DATE                NOT NULL DEFAULT CURRENT_DATE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,--added timestamp as importnat feature 
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -109,9 +110,11 @@ CREATE TABLE Payment (
     payment_method  payment_method  NOT NULL
 );
 
--- Trascation table
-CREATE TABLE Transaction (
-    transaction_id  SERIAL          PRIMARY KEY,
+-- !! Batana payment alag hai from transaction
+
+--changed name from Transaction to Transactions because of error (reserved word hai)--
+CREATE TABLE Transactions (
+    transaction_id  SERIAL              PRIMARY KEY,
     farmer_id       INT                 NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
     type            trans_type    NOT NULL, --enum use kiya hai and type kyunke mujhe kuch aur nahi yaad
     amount          NUMERIC(15, 2)      NOT NULL CHECK (amount > 0),
@@ -123,10 +126,10 @@ CREATE TABLE Transaction (
 --Fraud Table
 CREATE TABLE FraudAlert (
     alert_id        SERIAL             PRIMARY KEY,
-    transaction_id  INT                NOT NULL REFERENCES Transaction(transaction_id) ON DELETE CASCADE,
+    transaction_id  INT                NOT NULL REFERENCES Transactions(transaction_id) ON DELETE CASCADE,
     reason          TEXT               NOT NULL,
     flag_date       DATE               NOT NULL DEFAULT CURRENT_DATE,
-    status_fraud          fraud_status NOT NULL DEFAULT 'Detected'
+    status          fraud_status NOT NULL DEFAULT 'Pending'
 );
 --Invoice Table
 CREATE TABLE Invoice (
@@ -139,3 +142,31 @@ CREATE TABLE Invoice (
     status_invoice       invoice_status  NOT NULL DEFAULT 'Overdue',
     CONSTRAINT chk_invoice_dates CHECK (due_date >= issue_date)
 );
+
+--also according to geeksforgeeks we can incorporate indexes sir ne aaj parhaya hai
+
+CREATE OR REPLACE FUNCTION detect_fraud()
+RETURNS TRIGGER AS $$
+DECLARE
+    avg_amount NUMERIC;
+BEGIN
+    -- get historical average
+    SELECT AVG(amount)
+    INTO avg_amount
+    FROM Transactions
+    WHERE farmer_id = NEW.farmer_id;
+
+    -- RULE: if transaction > 2x average → fraud
+    IF avg_amount IS NOT NULL AND NEW.amount > 2 * avg_amount THEN
+        INSERT INTO FraudAlert (transaction_id, reason, status)
+        VALUES (NEW.transaction_id, 'Unusual high transaction', 'Pending');
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER fraud_trigger
+AFTER INSERT ON Transactions
+FOR EACH ROW
+EXECUTE FUNCTION detect_fraud();
