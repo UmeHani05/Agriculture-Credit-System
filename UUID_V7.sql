@@ -1,4 +1,11 @@
--- this code is imported from https://gist.github.com/edr3x/ba286f20f8bb35205bf750209d621b3b a open source implementation of UUIDv7 in PostgreSQL by Ed R. (
+-- this code is imported from https://gist.github.com/edr3x/ba286f20f8bb35205bf750209d621b3b a open source implementation of UUIDv7 in PostgreSQL by Ed R. 
+-- UUID V7 vs UUID V4: 
+--UUID V7 is a time-based UUID that incorporates a timestamp, 
+--while UUID V4 is a random UUID that does not include any time information. 
+--UUID V7 provides better performance and scalability for distributed systems, 
+--as it allows for efficient generation and sorting of UUIDs based on their creation time. 
+--In contrast, UUID V4 can lead to performance issues in distributed systems due to its random nature, 
+--which can result in collisions and inefficient indexing.
 create or replace function gen_uuidv7() returns uuid as $$
 declare
 begin
@@ -38,10 +45,3 @@ begin
 
 	return encode(v_output_bytes, 'hex')::uuid;
 end $$ language plpgsql;
--- UUID V7 vs UUID V4: 
---UUID V7 is a time-based UUID that incorporates a timestamp, 
---while UUID V4 is a random UUID that does not include any time information. 
---UUID V7 provides better performance and scalability for distributed systems, 
---as it allows for efficient generation and sorting of UUIDs based on their creation time. 
---In contrast, UUID V4 can lead to performance issues in distributed systems due to its random nature, 
---which can result in collisions and inefficient indexing.
