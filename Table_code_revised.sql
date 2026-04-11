@@ -1,6 +1,5 @@
---commands yahan se chori kiya hai
+--commands From this website
 -- https://www.postgresql.org/docs/current/sql-commands.html
---gang syntax ka issue hosakta hai, please comments karke batadena
 --enums are used for fixed "option" style inputs
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
@@ -15,15 +14,35 @@ CREATE TYPE invoice_status       AS ENUM ('Paid', 'Overdue');
 CREATE TYPE fraud_status AS ENUM ('Pending', 'Verified', 'Dismissed'); 
 
 
---idk agar yeh rakhna hai
-CREATE TABLE B_User (
-   user_id       SERIAL          PRIMARY KEY,
-   Bank_name          VARCHAR(150)    NOT NULL,
-   password      TEXT            NOT NULL
+CREATE TABLE Banks(--Centralized banking as we need to keep track of the banks and their relationship with the farmers and the loans.
+    bank_id UUID PRIMARY KEY DEFAULT gen_uuid7(),
+    bank_name VARCHAR(150) NOT NULL UNIQUE,
+    headquarters_address VARCHAR(255),
+    branch_id VARCHAR(50) NOT NULL UNIQUE,
+    contact_number VARCHAR(20)
+);
+--changed the name from User to UserAccounts 
+CREATE TABLE UserAccounts (
+   user_id       UUID PRIMARY KEY DEFAULT gen_uuidv7(),--as for security and scalability
+   bank_id       UUID            NOT NULL REFERENCES Banks(bank_id) ON DELETE CASCADE,
+--    bank_name          VARCHAR(150)    NOT NULL REFERENCES Banks(bank_name),--this should be imported from Banks-not sure
+   bank_name          VARCHAR(150)    NOT NULL, --this should be imported from Banks
+   username TEXT            NOT NULL UNIQUE,
+    role               user_role       NOT NULL,
+   password_hash      TEXT            NOT NULL--hash value stored with password hashing algorithm and with salt
+);
+-- ADded Gurantor to keep track for gurantors.
+CREATE TABLE Gurantor(--its needed as we need to keep track of the gurantors and their relationship with the farmers and the loans. It will also help with fraud detection and risk assessment.
+gurantor_id UUID PRIMARY KEY DEFAULT gen_uuidv7(),
+loan_id     INT             NOT NULL REFERENCES Loan(loan_id) ON DELETE CASCADE,
+cnic        VARCHAR(15)     NOT NULL UNIQUE,
+phone       VARCHAR(20),
+relationship VARCHAR(50),--realtionship with farmer (we can also make this enum)
+status_gurantor status_gurantor NOT NULL DEFAULT 'Accepted'--gurantor can accept or reject the guarantorship
 );
 
 CREATE TABLE Farmer (
-    farmer_id         SERIAL          PRIMARY KEY,
+    farmer_id        UUID PRIMARY KEY DEFAULT gen_uuidv7(),--as for security and scalability
     name              VARCHAR(150)    NOT NULL,
     cnic              VARCHAR(15)     NOT NULL UNIQUE, 
     phone             VARCHAR(20),
@@ -57,24 +76,26 @@ CREATE TABLE RiskScore (
 	);
  
 CREATE TABLE LoanApplication (
-    application_id    SERIAL              PRIMARY KEY,
+    application_id     UUID PRIMARY KEY DEFAULT gen_uuidv7(),
     farmer_id         INT                 NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
     requested_amount  NUMERIC(15, 2)      NOT NULL,
     purpose           TEXT,
     --here too
     risk_score        NUMERIC(5, 2),                   
     application_date  DATE                NOT NULL DEFAULT CURRENT_DATE,
-    status            app_status  NOT NULL DEFAULT 'Pending' --naya seekha hai values dalne ke baad hi pata chalega
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,--added timestamp as importnat feature 
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status_application            app_status  NOT NULL DEFAULT 'Pending' --naya seekha hai values dalne ke baad hi pata chalega
 );
-
+--loan table
 CREATE TABLE Loan (
-    loan_id          SERIAL        PRIMARY KEY,
+    loan_id          UUID PRIMARY KEY DEFAULT gen_uuidv7(),
     application_id   INT           NOT NULL UNIQUE REFERENCES LoanApplication(application_id) ON DELETE RESTRICT,
     approved_amount  NUMERIC(15, 2) NOT NULL,
     interest_rate    NUMERIC(5, 2)  NOT NULL,   --again not sure if we are going with interest
     start_date       DATE          NOT NULL,
     end_date         DATE          NOT NULL,
-    status           loan_status   NOT NULL DEFAULT 'Active',
+    status_loan           loan_status   NOT NULL DEFAULT 'Active',
     CONSTRAINT chk_loan_dates CHECK (end_date > start_date)
 );
 
@@ -84,6 +105,8 @@ CREATE TABLE Payment (
     loan_id         INT             NOT NULL REFERENCES Loan(loan_id) ON DELETE RESTRICT,
     amount_paid     NUMERIC(15, 2)  NOT NULL CHECK (amount_paid > 0),
     payment_date    DATE            NOT NULL DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     payment_method  payment_method  NOT NULL
 );
 
@@ -96,9 +119,11 @@ CREATE TABLE Transactions (
     type            trans_type    NOT NULL, --enum use kiya hai and type kyunke mujhe kuch aur nahi yaad
     amount          NUMERIC(15, 2)      NOT NULL CHECK (amount > 0),
     date            DATE                NOT NULL DEFAULT CURRENT_DATE,
-    status          trans_status  NOT NULL DEFAULT 'Pending'
+    transferred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status_trans          trans_status  NOT NULL DEFAULT 'Pending'
 );
- 
+--Fraud Table
 CREATE TABLE FraudAlert (
     alert_id        SERIAL             PRIMARY KEY,
     transaction_id  INT                NOT NULL REFERENCES Transactions(transaction_id) ON DELETE CASCADE,
@@ -106,14 +131,15 @@ CREATE TABLE FraudAlert (
     flag_date       DATE               NOT NULL DEFAULT CURRENT_DATE,
     status          fraud_status NOT NULL DEFAULT 'Pending'
 );
-
+--Invoice Table
 CREATE TABLE Invoice (
     invoice_id   SERIAL          PRIMARY KEY,
+    invoice_no   VARCHAR(50)     NOT NULL UNIQUE,
     farmer_id    INT             NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
     amount       NUMERIC(15, 2)  NOT NULL CHECK (amount > 0),
     issue_date   DATE            NOT NULL DEFAULT CURRENT_DATE,
     due_date     DATE            NOT NULL,
-    status       invoice_status  NOT NULL DEFAULT 'Overdue',
+    status_invoice       invoice_status  NOT NULL DEFAULT 'Overdue',
     CONSTRAINT chk_invoice_dates CHECK (due_date >= issue_date)
 );
 
