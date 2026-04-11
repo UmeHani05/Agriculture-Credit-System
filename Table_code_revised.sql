@@ -142,6 +142,7 @@ CREATE TABLE Invoice (
     status_invoice       invoice_status  NOT NULL DEFAULT 'Overdue',
     CONSTRAINT chk_invoice_dates CHECK (due_date >= issue_date)
 );
+
 --also according to geeksforgeeks we can incorporate indexes
 --Fraud detection trigger function
 CREATE OR REPLACE FUNCTION detect_fraud()
@@ -154,14 +155,17 @@ BEGIN
     INTO avg_amount
     FROM Transactions
     WHERE farmer_id = NEW.farmer_id;
+
     -- RULE: if transaction > 2x average → fraud
     IF avg_amount IS NOT NULL AND NEW.amount > 2 * avg_amount THEN
         INSERT INTO FraudAlert (transaction_id, reason, status)
         VALUES (NEW.transaction_id, 'Unusual high transaction', 'Pending');
     END IF;
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
 CREATE TRIGGER fraud_trigger
 AFTER INSERT ON Transactions
 FOR EACH ROW
