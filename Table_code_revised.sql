@@ -2,7 +2,8 @@
 -- https://www.postgresql.org/docs/current/sql-commands.html
 --gang syntax ka issue hosakta hai, please comments karke batadena
 --enums are used for fixed "option" style inputs
-
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
 CREATE TYPE app_status  AS ENUM ('Pending', 'Approved', 'Rejected');
 CREATE TYPE loan_status          AS ENUM ('Active', 'Closed');
 CREATE TYPE payment_method       AS ENUM ('Cash', 'Online');
@@ -10,7 +11,9 @@ CREATE TYPE trans_type     AS ENUM ('Loan', 'Payment');
 CREATE TYPE trans_status   AS ENUM ('Completed', 'Pending');
 CREATE TYPE user_role            AS ENUM ('Admin', 'Loan Officer','Credit Analyst');
 CREATE TYPE invoice_status       AS ENUM ('Paid', 'Overdue');
-CREATE TYPE fraud_status   AS ENUM ('Detected', 'Undetected');
+--changed from "Detected" to "Pending" kyunke fraud alert ke liye pending zyada sahi lagta hai, aur verified/dismissed uske baad aayenge
+CREATE TYPE fraud_status AS ENUM ('Pending', 'Verified', 'Dismissed'); 
+
 
 --idk agar yeh rakhna hai
 CREATE TABLE B_User (
@@ -19,9 +22,6 @@ CREATE TABLE B_User (
    password      TEXT            NOT NULL
 );
 
---also batana land ko kaise kar sakti hun thori confused hun
-
---idk how to incorporate this into the bank thingy
 CREATE TABLE Farmer (
     farmer_id         SERIAL          PRIMARY KEY,
     name              VARCHAR(150)    NOT NULL,
@@ -32,9 +32,21 @@ CREATE TABLE Farmer (
 	Land 			FLOAT(1),
 	Credit_History  BOOL,
 	Guarantors      VARCHAR(150),
-	Eligibility		BOOL,
-	Fraud_alert     BOOL 			
+	Eligibility		BOOL
+	--removed the fraud alert column from farmer table because it can be determined from the transactions and fraud alert tables, and it would be redundant to keep it in the farmer table. Instead, we can calculate the fraud alert status for a farmer based on their transactions and any associated fraud alerts.		
 );
+
+-- i added this table to keep track of the land details of the farmers, which can be useful for loan eligibility and risk assessment. It has a foreign key reference to the Farmer table, so if a farmer is deleted, their land records will also be deleted (ON DELETE CASCADE).
+--we can check this later
+CREATE TABLE Land (
+    land_id SERIAL PRIMARY KEY,
+    farmer_id INT REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
+    area NUMERIC(10,2),
+    location TEXT,
+    soil_type TEXT
+);
+
+--idk how to incorporate this into the bank thingy
 
 CREATE TABLE RiskScore (
     risk_id          SERIAL          PRIMARY KEY,
@@ -42,14 +54,14 @@ CREATE TABLE RiskScore (
     score_value      NUMERIC(5, 2)   NOT NULL,  
     calculated_date  DATE            NOT NULL DEFAULT CURRENT_DATE,
     remarks          TEXT
-);
+	);
  
 CREATE TABLE LoanApplication (
     application_id    SERIAL              PRIMARY KEY,
     farmer_id         INT                 NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
     requested_amount  NUMERIC(15, 2)      NOT NULL,
     purpose           TEXT,
-    fraud_alert       BOOLEAN             NOT NULL DEFAULT FALSE,
+    --here too
     risk_score        NUMERIC(5, 2),                   
     application_date  DATE                NOT NULL DEFAULT CURRENT_DATE,
     status            app_status  NOT NULL DEFAULT 'Pending' --naya seekha hai values dalne ke baad hi pata chalega
@@ -76,7 +88,9 @@ CREATE TABLE Payment (
 );
 
 -- !! Batana payment alag hai from transaction
-CREATE TABLE Transaction (
+
+--changed name from Transaction to Transactions because of error (reserved word hai)--
+CREATE TABLE Transactions (
     transaction_id  SERIAL              PRIMARY KEY,
     farmer_id       INT                 NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
     type            trans_type    NOT NULL, --enum use kiya hai and type kyunke mujhe kuch aur nahi yaad
@@ -87,10 +101,10 @@ CREATE TABLE Transaction (
  
 CREATE TABLE FraudAlert (
     alert_id        SERIAL             PRIMARY KEY,
-    transaction_id  INT                NOT NULL REFERENCES Transaction(transaction_id) ON DELETE CASCADE,
+    transaction_id  INT                NOT NULL REFERENCES Transactions(transaction_id) ON DELETE CASCADE,
     reason          TEXT               NOT NULL,
     flag_date       DATE               NOT NULL DEFAULT CURRENT_DATE,
-    status          fraud_status NOT NULL DEFAULT 'Detected'
+    status          fraud_status NOT NULL DEFAULT 'Pending'
 );
 
 CREATE TABLE Invoice (
@@ -104,3 +118,29 @@ CREATE TABLE Invoice (
 );
 
 --also according to geeksforgeeks we can incorporate indexes sir ne aaj parhaya hai
+
+CREATE OR REPLACE FUNCTION detect_fraud()
+RETURNS TRIGGER AS $$
+DECLARE
+    avg_amount NUMERIC;
+BEGIN
+    -- get historical average
+    SELECT AVG(amount)
+    INTO avg_amount
+    FROM Transactions
+    WHERE farmer_id = NEW.farmer_id;
+
+    -- RULE: if transaction > 2x average → fraud
+    IF avg_amount IS NOT NULL AND NEW.amount > 2 * avg_amount THEN
+        INSERT INTO FraudAlert (transaction_id, reason, status)
+        VALUES (NEW.transaction_id, 'Unusual high transaction', 'Pending');
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER fraud_trigger
+AFTER INSERT ON Transactions
+FOR EACH ROW
+EXECUTE FUNCTION detect_fraud();
