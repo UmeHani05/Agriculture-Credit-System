@@ -90,7 +90,6 @@ CREATE TABLE Farmer (
     registration_date DATE            NOT NULL DEFAULT CURRENT_DATE,
 	Land 			FLOAT(1),
 	Credit_History  BOOL,
-	Guarantors      VARCHAR(150),
 	Eligibility		BOOL
 	--removed the fraud alert column from farmer table because it can be determined from the transactions and fraud alert tables, and it would be redundant to keep it in the farmer table. Instead, we can calculate the fraud alert status for a farmer based on their transactions and any associated fraud alerts.		
 );
