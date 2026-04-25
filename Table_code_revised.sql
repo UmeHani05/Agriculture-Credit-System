@@ -90,7 +90,6 @@ CREATE TABLE Farmer (
     registration_date DATE            NOT NULL DEFAULT CURRENT_DATE,
 	Land 			FLOAT(1),
 	Credit_History  BOOL,
-	Guarantors      VARCHAR(150),
 	Eligibility		BOOL
 	--removed the fraud alert column from farmer table because it can be determined from the transactions and fraud alert tables, and it would be redundant to keep it in the farmer table. Instead, we can calculate the fraud alert status for a farmer based on their transactions and any associated fraud alerts.		
 );
@@ -162,6 +161,23 @@ CREATE TABLE Payment (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     payment_method  payment_method  NOT NULL
 );
+
+CREATE OR REPLACE VIEW LoanStatus AS
+SELECT
+    l.loan_id,
+    l.application_id,
+    l.approved_amount,
+    l.status_loan,
+
+    COALESCE(SUM(p.amount_paid), 0) AS total_paid,
+
+    (l.approved_amount - COALESCE(SUM(p.amount_paid), 0)) AS remaining_amount
+
+FROM Loan l
+LEFT JOIN Payment p
+    ON l.loan_id = p.loan_id
+
+GROUP BY l.loan_id, l.application_id, l.approved_amount, l.status_loan;
 
 -- !! Batana payment alag hai from transaction
 
@@ -253,6 +269,28 @@ BEGIN
         INSERT INTO FraudAlert (transaction_id, reason, status)
         VALUES (NEW.transaction_id, 'Suspicious transaction detected', 'Pending');
     END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION update_loan_status()
+RETURNS TRIGGER AS $$
+DECLARE
+    remaining NUMERIC;
+BEGIN
+
+    SELECT (l.approved_amount - COALESCE(SUM(p.amount_paid), 0))
+    INTO remaining
+    FROM Loan l
+    LEFT JOIN Payment p ON l.loan_id = p.loan_id
+    WHERE l.loan_id = NEW.loan_id
+    GROUP BY l.approved_amount;
+
+    IF remaining <= 0 THEN
+        UPDATE Loan
+        SET status_loan = 'Closed'
+        WHERE loan_id = NEW.loan_id;
+    END IF;
 
     RETURN NEW;
 END;
@@ -262,3 +300,12 @@ CREATE TRIGGER fraud_trigger
 AFTER INSERT ON Transactions
 FOR EACH ROW
 EXECUTE FUNCTION detect_fraud();
+
+DROP TRIGGER IF EXISTS loan_payment_trigger ON Payment;
+
+CREATE TRIGGER loan_payment_trigger
+AFTER INSERT ON Payment
+FOR EACH ROW
+EXECUTE FUNCTION update_loan_status();
+
+--Triggers at the end because they depend on the functions and tables being created first, and also to avoid any potential issues with circular dependencies. By defining the triggers at the end, we ensure that all necessary components are in place before the triggers are activated.
