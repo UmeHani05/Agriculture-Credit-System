@@ -295,7 +295,6 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-
 CREATE TRIGGER fraud_trigger
 AFTER INSERT ON Transactions
 FOR EACH ROW
