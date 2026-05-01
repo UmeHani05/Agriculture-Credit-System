@@ -121,7 +121,20 @@ CREATE TABLE RiskScore (
     calculated_date   DATE          NOT NULL DEFAULT CURRENT_DATE,
     remarks           TEXT
 );
-
+CREATE TABLE FarmerAccount (
+    account_id      UUID           PRIMARY KEY DEFAULT gen_uuidv7(),
+    farmer_id       UUID           NOT NULL REFERENCES Farmer(farmer_id),
+    bank_id         UUID           NOT NULL REFERENCES Banks(bank_id),
+    branch_id      VARCHAR  (50)       REFERENCES Branches(branch_id),
+    account_number  VARCHAR(20)    NOT NULL UNIQUE,
+    account_type    account_type   NOT NULL DEFAULT 'Savings',
+    balance         NUMERIC(15,2)  NOT NULL DEFAULT 0,
+    is_active       BOOLEAN        NOT NULL DEFAULT TRUE,
+    opened_date     DATE           NOT NULL DEFAULT CURRENT_DATE,
+    deleted_at      TIMESTAMP,
+    created_at      TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 -- ============================================================
 -- DEPENDENT ENTITIES
