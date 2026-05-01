@@ -211,50 +211,8 @@ CREATE TABLE Invoice (
     status_invoice       invoice_status  NOT NULL DEFAULT 'Overdue',
     CONSTRAINT chk_invoice_dates CHECK (due_date >= issue_date)
 );
-
-
-CREATE OR REPLACE FUNCTION generate_loan_schedule(
-    p_loan_amount NUMERIC,
-    p_interest_rate NUMERIC, -- e.g. 0.20 for 20%
-    p_months INT,
-    p_start_date DATE
-)
-RETURNS TABLE (
-    month_no INT,
-    payment_date DATE,
-    opening_balance NUMERIC,
-    principal NUMERIC,
-    interest NUMERIC,
-    installment NUMERIC,
-    closing_balance NUMERIC
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    RETURN QUERY
-    SELECT
-        gs AS month_no,
-        (p_start_date + (gs || ' month')::interval)::DATE AS payment_date,
-
-        ROUND(p_loan_amount - (p_loan_amount / p_months) * (gs - 1), 2) AS opening_balance,
-
-        ROUND(p_loan_amount / p_months, 2) AS principal,
-
-        ROUND((p_loan_amount * p_interest_rate) / p_months, 2) AS interest,
-
-        ROUND(
-            (p_loan_amount / p_months)
-            + ((p_loan_amount * p_interest_rate) / p_months),
-        2) AS installment,
-
-        ROUND(p_loan_amount - (p_loan_amount / p_months) * gs, 2) AS closing_balance
-
-    FROM generate_series(1, p_months) gs;
-END;
-$$;
-
---also according to geeksforgeeks we can incorporate indexes sir ne aaj parhaya hai
-
+--also according to geeksforgeeks we can incorporate indexes
+--Fraud detection trigger function
 CREATE OR REPLACE FUNCTION detect_fraud()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -264,11 +222,12 @@ BEGIN
     INTO avg_amount
     FROM Transactions
     WHERE farmer_id = NEW.farmer_id;
-
-    IF NEW.amount > GREATEST(avg_amount * 2, 30000) THEN
+    -- RULE: if transaction > 2x average → fraud
+    IF avg_amount IS NOT NULL AND NEW.amount > 2 * avg_amount THEN
         INSERT INTO FraudAlert (transaction_id, reason, status)
         VALUES (NEW.transaction_id, 'Suspicious transaction detected', 'Pending');
     END IF;
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -295,6 +254,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
 CREATE TRIGGER fraud_trigger
 AFTER INSERT ON Transactions
 FOR EACH ROW
