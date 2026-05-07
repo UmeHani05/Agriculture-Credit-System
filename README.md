@@ -1,5 +1,4 @@
 # Agriculture-Credit-System
-
 ## Overview
 
 The Agricultural Credit System is a database-driven application designed to support risk-based lending for farmers. It centralizes farmer, loan, invoice, and transaction data to improve credit assessment, reduce fraud, and enhance financial decision-making.
@@ -55,3 +54,4 @@ Aleena Jamil (2024081)
 ### Future Work
 Machine learning-based risk prediction
 External data integration (e.g., weather, crop data)
+
