@@ -94,6 +94,7 @@ Agriculture-Credit-System/
 │       ├── final_draft_schema.sql
 │       ├── table_code_revised.sql
 │       └── tables_merged_risk_score.sql
+```
 
 ### ERD MAPPED
 <img width="1006" height="1044" alt="asc_erd drawio (3)" src="https://github.com/user-attachments/assets/8403386e-a371-4d77-b55f-739c69f114a4" />
