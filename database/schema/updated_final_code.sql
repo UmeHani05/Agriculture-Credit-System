@@ -1,8 +1,6 @@
 -- ============================================================
 -- AGRICULTURAL CREDIT & FINANCIAL MANAGEMENT SYSTEM
--- Corrected Schema
--- ============================================================
-
+--=============================================================
 -- ============================================================
 -- UUID V7 FUNCTIONS (source: https://gist.github.com/edr3x/ba286f20f8bb35205bf750209d621b3b)
 -- ============================================================
@@ -39,11 +37,7 @@ BEGIN
     RETURN encode(v_output_bytes, 'hex')::uuid;
 END $$ LANGUAGE plpgsql;
 
-
--- ============================================================
 -- ENUMS
--- ============================================================
-
 CREATE TYPE app_status       AS ENUM ('Pending', 'Approved', 'Rejected');
 CREATE TYPE loan_status      AS ENUM ('Active', 'Closed');
 CREATE TYPE payment_method   AS ENUM ('Cash', 'Online');
@@ -51,23 +45,28 @@ CREATE TYPE trans_type       AS ENUM ('Loan', 'Payment');
 CREATE TYPE trans_status     AS ENUM ('Completed', 'Pending');
 CREATE TYPE user_role        AS ENUM ('Bank Manager', 'Loan Officer', 'Credit Analyst');
 CREATE TYPE invoice_status   AS ENUM ('Paid', 'Overdue');
-CREATE TYPE fraud_status AS ENUM ('Detected', 'Reviewed', 'Dismissed');
+CREATE TYPE fraud_status     AS ENUM ('Detected', 'Reviewed', 'Dismissed');
 CREATE TYPE land_type        AS ENUM ('Irrigated', 'Non-Irrigated', 'Pasture');
 CREATE TYPE claim_collateral AS ENUM ('Claimed', 'Non-Claimed', 'Partially Claimed');
-
--- ============================================================
 -- EXTENSIONS
--- ============================================================
+
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- SEQUENCES FOR BUSINESS CODES
+CREATE SEQUENCE bank_seq      START 1;
+CREATE SEQUENCE farmer_seq    START 1;
+CREATE SEQUENCE account_seq   START 1;
+CREATE SEQUENCE loan_app_seq  START 1;
+CREATE SEQUENCE loan_seq      START 1;
+CREATE SEQUENCE txn_seq       START 1;
+CREATE SEQUENCE invoice_seq   START 1;
 
--- ============================================================
 -- INDEPENDENT ENTITIES
--- ============================================================
 
 CREATE TABLE Banks (
     bank_id              UUID         PRIMARY KEY DEFAULT gen_uuidv7(),
+    bank_code            VARCHAR(20)  NOT NULL UNIQUE,               
     bank_name            VARCHAR(150) NOT NULL UNIQUE,
     headquarters_address VARCHAR(255),
     branch_id            VARCHAR(50)  NOT NULL UNIQUE,
@@ -84,6 +83,7 @@ CREATE TABLE UserAccounts (
 
 CREATE TABLE Farmer (
     farmer_id         UUID         PRIMARY KEY DEFAULT gen_uuidv7(),
+    farmer_code       VARCHAR(20)  NOT NULL UNIQUE,              
     name              VARCHAR(150) NOT NULL,
     cnic              VARCHAR(15)  NOT NULL UNIQUE,
     phone             VARCHAR(20),
@@ -95,24 +95,23 @@ CREATE TABLE Farmer (
 );
 
 CREATE TABLE farmer_finance (
-    farmer_finance_id   UUID      PRIMARY KEY DEFAULT gen_uuidv7(),
+    farmer_finance_id   UUID          PRIMARY KEY DEFAULT gen_uuidv7(),
     farmer_id           UUID          NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
     reported_date       DATE          NOT NULL DEFAULT CURRENT_DATE,
     annual_revenue      NUMERIC(15,2),
     operating_expenses  NUMERIC(15,2),
-    net_income          NUMERIC(15,2),  -- used in ROA: net_income / total_assets
+    net_income          NUMERIC(15,2),
     total_assets        NUMERIC(15,2),
     cash_on_hand        NUMERIC(15,2),
     current_assets      NUMERIC(15,2),
     current_liabilities NUMERIC(15,2),
     total_debt          NUMERIC(15,2),
     annual_debt_service NUMERIC(15,2),
-    CONSTRAINT uq_farmer_finance_date UNIQUE (farmer_id, reported_date)-- to ensure the credibility
+    CONSTRAINT uq_farmer_finance_date UNIQUE (farmer_id, reported_date)
 );
 
-
 CREATE TABLE RiskScore (
-    risk_id           UUID       PRIMARY KEY DEFAULT gen_uuidv7(),
+    risk_id           UUID          PRIMARY KEY DEFAULT gen_uuidv7(),
     farmer_id         UUID          NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
     sector_risk_value NUMERIC(5,2)  NOT NULL,
     governance_value  NUMERIC(5,2)  NOT NULL,
@@ -120,11 +119,13 @@ CREATE TABLE RiskScore (
     calculated_date   DATE          NOT NULL DEFAULT CURRENT_DATE,
     remarks           TEXT
 );
+
 CREATE TABLE FarmerAccount (
     account_id      UUID           PRIMARY KEY DEFAULT gen_uuidv7(),
+    account_code    VARCHAR(20)    NOT NULL UNIQUE,                 
     farmer_id       UUID           NOT NULL REFERENCES Farmer(farmer_id),
     bank_id         UUID           NOT NULL REFERENCES Banks(bank_id),
-    branch_id      VARCHAR  (50)       REFERENCES Banks(branch_id),
+    branch_id       VARCHAR(50)        REFERENCES Banks(branch_id),
     account_number  VARCHAR(20)    NOT NULL UNIQUE,
     balance         NUMERIC(15,2)  NOT NULL DEFAULT 0,
     is_active       BOOLEAN        NOT NULL DEFAULT TRUE,
@@ -134,11 +135,11 @@ CREATE TABLE FarmerAccount (
     updated_at      TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- ============================================================
 -- DEPENDENT ENTITIES
--- ============================================================
+
 CREATE TABLE LoanApplication (
     application_id     UUID          PRIMARY KEY DEFAULT gen_uuidv7(),
+    application_code   VARCHAR(20)   NOT NULL UNIQUE,            
     farmer_id          UUID          NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
     requested_amount   NUMERIC(15,2) NOT NULL CHECK (requested_amount > 0),
     purpose            TEXT,
@@ -151,6 +152,7 @@ CREATE TABLE LoanApplication (
 
 CREATE TABLE Loan (
     loan_id         UUID          PRIMARY KEY DEFAULT gen_uuidv7(),
+    loan_code       VARCHAR(20)   NOT NULL UNIQUE,                
     application_id  UUID          NOT NULL UNIQUE REFERENCES LoanApplication(application_id) ON DELETE RESTRICT,
     bank_id         UUID          NOT NULL REFERENCES Banks(bank_id) ON DELETE RESTRICT,
     approved_amount NUMERIC(15,2) NOT NULL CHECK (approved_amount > 0),
@@ -180,21 +182,22 @@ CREATE TABLE Payment (
     updated_at     TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-
 CREATE TABLE Transaction (
-    transaction_id UUID          PRIMARY KEY DEFAULT gen_uuidv7(),
-    farmer_id      UUID          NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
-    loan_id        UUID          REFERENCES Loan(loan_id) ON DELETE SET NULL,
-    type           trans_type    NOT NULL,
-    amount         NUMERIC(15,2) NOT NULL CHECK (amount > 0),
-    transaction_date           DATE          NOT NULL DEFAULT CURRENT_DATE,
-    transferred_at TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    status_trans   trans_status  NOT NULL DEFAULT 'Pending'
+    transaction_id   UUID          PRIMARY KEY DEFAULT gen_uuidv7(),
+    transaction_code VARCHAR(20)   NOT NULL UNIQUE,              
+    farmer_id        UUID          NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
+    loan_id          UUID          REFERENCES Loan(loan_id) ON DELETE SET NULL,
+    type             trans_type    NOT NULL,
+    amount           NUMERIC(15,2) NOT NULL CHECK (amount > 0),
+    transaction_date DATE          NOT NULL DEFAULT CURRENT_DATE,
+    transferred_at   TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status_trans     trans_status  NOT NULL DEFAULT 'Pending'
 );
 
 CREATE TABLE Invoice (
     invoice_id     UUID           PRIMARY KEY DEFAULT gen_uuidv7(),
+    invoice_code   VARCHAR(20)    NOT NULL UNIQUE,               
     invoice_no     VARCHAR(50)    NOT NULL UNIQUE,
     farmer_id      UUID           NOT NULL REFERENCES Farmer(farmer_id) ON DELETE CASCADE,
     loan_id        UUID           REFERENCES Loan(loan_id) ON DELETE SET NULL,
@@ -213,16 +216,12 @@ CREATE TABLE FraudAlert (
     reason         TEXT         NOT NULL,
     flag_date      DATE         NOT NULL DEFAULT CURRENT_DATE,
     status_fraud   fraud_status NOT NULL DEFAULT 'Detected',
-    CONSTRAINT chk_fraud_source CHECK (--check whether the falg is DEFAULT or calculated
+    CONSTRAINT chk_fraud_source CHECK (
         transaction_id IS NOT NULL OR application_id IS NOT NULL
     )
 );
 
-
--- ============================================================
 -- INDEXES
--- ============================================================
-
 CREATE INDEX idx_useraccounts_bank     ON UserAccounts(bank_id);
 CREATE INDEX idx_useraccounts_role     ON UserAccounts(role);
 CREATE INDEX idx_riskscore_farmer      ON RiskScore(farmer_id);
@@ -239,25 +238,29 @@ CREATE INDEX idx_collateral_claim      ON Collateral(claim_collateral);
 CREATE INDEX idx_payment_loan          ON Payment(loan_id);
 CREATE INDEX idx_payment_date          ON Payment(payment_date);
 CREATE INDEX idx_transaction_farmer    ON Transaction(farmer_id);
-CREATE INDEX idx_transaction_loan      ON Transaction(loan_id);       -- new
+CREATE INDEX idx_transaction_loan      ON Transaction(loan_id);
 CREATE INDEX idx_transaction_status    ON Transaction(status_trans);
-CREATE INDEX idx_transaction_date      ON Transaction(transaction_date);--new
+CREATE INDEX idx_transaction_date      ON Transaction(transaction_date);
 CREATE INDEX idx_invoice_farmer        ON Invoice(farmer_id);
-CREATE INDEX idx_invoice_loan          ON Invoice(loan_id);           -- new
+CREATE INDEX idx_invoice_loan          ON Invoice(loan_id);
 CREATE INDEX idx_invoice_status        ON Invoice(status_invoice);
 CREATE INDEX idx_invoice_due           ON Invoice(due_date);
 CREATE INDEX idx_fraud_transaction     ON FraudAlert(transaction_id);
-CREATE INDEX idx_fraud_application     ON FraudAlert(application_id); -- new
+CREATE INDEX idx_fraud_application     ON FraudAlert(application_id);
 CREATE INDEX idx_fraud_status          ON FraudAlert(status_fraud);
 CREATE INDEX idx_fraud_date            ON FraudAlert(flag_date);
 CREATE INDEX idx_farmer_finance_farmer ON farmer_finance(farmer_id);
 CREATE INDEX idx_farmer_finance_date   ON farmer_finance(reported_date);
+CREATE INDEX idx_bank_code    ON Banks(bank_code);
+CREATE INDEX idx_farmer_code  ON Farmer(farmer_code);
+CREATE INDEX idx_account_code ON FarmerAccount(account_code);
+CREATE INDEX idx_app_code     ON LoanApplication(application_code);
+CREATE INDEX idx_loan_code    ON Loan(loan_code);
+CREATE INDEX idx_txn_code     ON Transaction(transaction_code);
+CREATE INDEX idx_invoice_code ON Invoice(invoice_code);
 
 
--- ============================================================
 -- TRIGGERS: updated_at auto-update
--- When LOAN APPLICATION, PAYEMENT, TRANSACTION is updated
--- ============================================================
 
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -279,10 +282,112 @@ CREATE TRIGGER trg_transaction_updated_at
     BEFORE UPDATE ON Transaction
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
--- ============================================================
--- TRIGGER: Fraud Detection
--- ============================================================
 
+
+-- TRIGGERS: Business Code Auto-Generation  
+
+
+CREATE OR REPLACE FUNCTION generate_farmer_code()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.farmer_code :=
+        'FARM-' || LPAD(nextval('farmer_seq')::TEXT, 6, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_farmer_code
+    BEFORE INSERT ON Farmer
+    FOR EACH ROW EXECUTE FUNCTION generate_farmer_code();
+
+CREATE OR REPLACE FUNCTION generate_app_code()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.application_code :=
+        'APP-' || LPAD(nextval('loan_app_seq')::TEXT, 6, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_app_code
+    BEFORE INSERT ON LoanApplication
+    FOR EACH ROW EXECUTE FUNCTION generate_app_code();
+
+-- ──────
+
+CREATE OR REPLACE FUNCTION generate_loan_code()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.loan_code :=                                              
+        'LOAN-' || LPAD(nextval('loan_seq')::TEXT, 6, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_loan_code
+    BEFORE INSERT ON Loan
+    FOR EACH ROW EXECUTE FUNCTION generate_loan_code();
+
+-- ──────
+
+CREATE OR REPLACE FUNCTION generate_txn_code()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.transaction_code :=
+        'TXN-' || LPAD(nextval('txn_seq')::TEXT, 6, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_txn_code
+    BEFORE INSERT ON Transaction
+    FOR EACH ROW EXECUTE FUNCTION generate_txn_code();
+
+-- ─────
+
+CREATE OR REPLACE FUNCTION generate_invoice_code()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.invoice_code :=
+        'INV-' || LPAD(nextval('invoice_seq')::TEXT, 6, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_invoice_code
+    BEFORE INSERT ON Invoice
+    FOR EACH ROW EXECUTE FUNCTION generate_invoice_code();
+
+-- ─────
+CREATE OR REPLACE FUNCTION generate_bank_code()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.bank_code :=
+        'BANK-' || LPAD(nextval('bank_seq')::TEXT, 6, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_bank_code
+    BEFORE INSERT ON Banks
+    FOR EACH ROW EXECUTE FUNCTION generate_bank_code();
+
+-- ─────
+
+CREATE OR REPLACE FUNCTION generate_account_code()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.account_code :=
+        'ACC-' || LPAD(nextval('account_seq')::TEXT, 6, '0');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_account_code
+    BEFORE INSERT ON FarmerAccount
+    FOR EACH ROW EXECUTE FUNCTION generate_account_code();
+
+-- TRIGGER: Fraud Detection
 CREATE OR REPLACE FUNCTION detect_fraud()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -297,9 +402,9 @@ BEGIN
         BEGIN
             INSERT INTO FraudAlert (transaction_id, reason, status_fraud)
             VALUES (NEW.transaction_id, 'Suspicious transaction detected', 'Detected');
-            UPDATE Farmer-- this will update the farmer's fraud alert frequently
-            SET fraud_alert=TRUE
-            WHERE farmer_id=NEW.farmer_id;
+            UPDATE Farmer
+            SET fraud_alert = TRUE
+            WHERE farmer_id = NEW.farmer_id;
         END;
     END IF;
     RETURN NEW;
@@ -310,49 +415,30 @@ CREATE TRIGGER fraud_trigger
     AFTER INSERT ON Transaction
     FOR EACH ROW EXECUTE FUNCTION detect_fraud();
 
--- ============================================================
+
 -- VIEW: Risk Assessment (Ministry of Finance Pakistan)
--- Weight normalization fixed so overall_risk_score lands in 1.0–4.0 range
---         Financial profile weights (10+10+10+15+10=55) normalized by dividing by 55
---         Business profile weights (20+15=35) normalized by dividing by 35
---         Then: financial_normalized * 0.55 + business_normalized * 0.45
--- ============================================================
 
 CREATE VIEW risk_assessment_mof AS
-WITH 
+WITH
 layer_1_ratio_calculation AS (
     SELECT
         f.application_id,
         r.is_in_arrears,
-        -- Financial Ratios
-
-        (ff.annual_revenue - ff.operating_expenses) / NULLIF(ff.annual_revenue, 0)      
-        AS ebitda_margin,
-        ff.net_income / NULLIF(ff.total_assets, 0)                                       
-        AS roa,
-        ff.current_assets / NULLIF(ff.current_liabilities, 0)                          
-        AS current_ratio,
-        ff.total_debt / NULLIF(c.land_value - ff.total_debt, 0)                        
-        AS de_ratio,
-        (ff.annual_revenue - ff.operating_expenses) / NULLIF(ff.annual_debt_service, 0) 
-        AS dscr,
-
-        -- Business Inputs
+        (ff.annual_revenue - ff.operating_expenses) / NULLIF(ff.annual_revenue, 0)       AS ebitda_margin,
+        ff.net_income / NULLIF(ff.total_assets, 0)                                        AS roa,
+        ff.current_assets / NULLIF(ff.current_liabilities, 0)                            AS current_ratio,
+        ff.total_debt / NULLIF(c.land_value - ff.total_debt, 0)                          AS de_ratio,
+        (ff.annual_revenue - ff.operating_expenses) / NULLIF(ff.annual_debt_service, 0)  AS dscr,
         r.sector_risk_value,
         r.governance_value
-
     FROM LoanApplication f
-    -- there is dupliaction of rows 
-    JOIN (--we are making sure that a recent risk score corresponds to a framer.
+    JOIN (
         SELECT DISTINCT ON (farmer_id) *
         FROM farmer_finance
-        ORDER BY  farmer_id, reported_date DESC
-        ) ff ON f.farmer_id=ff.farmer_id
-    
+        ORDER BY farmer_id, reported_date DESC
+    ) ff ON f.farmer_id = ff.farmer_id
     JOIN (
-        SELECT
-            loan_id,
-            SUM(land_value) AS land_value   -- aggregate to one row per loan
+        SELECT loan_id, SUM(land_value) AS land_value
         FROM Collateral
         GROUP BY loan_id
     ) c ON c.loan_id = (
@@ -362,112 +448,90 @@ layer_1_ratio_calculation AS (
         LIMIT 1
     )
     JOIN (
-        SELECT DISTINCT ON (farmer_id)*
+        SELECT DISTINCT ON (farmer_id) *
         FROM RiskScore
-        ORDER BY farmer_id,calculated_date DESC
-        ) r ON f.farmer_id=r.farmer_id
+        ORDER BY farmer_id, calculated_date DESC
+    ) r ON f.farmer_id = r.farmer_id
 ),
 layer_2_score_calculation AS (
     SELECT
         application_id,
-
-        -- EBITDA Margin Score
         CASE
-            WHEN is_in_arrears         THEN 4  
+            WHEN is_in_arrears         THEN 4
             WHEN ebitda_margin >= 0.50 THEN 1
             WHEN ebitda_margin >= 0.30 THEN 2
             WHEN ebitda_margin >= 0.10 THEN 3
             ELSE 4
         END AS profitability_score_ebitda_margin,
-
         CASE
-            WHEN roa >= 0.20                    THEN 1
-            WHEN roa >= 0.10 AND roa < 0.20     THEN 2
-            WHEN roa >= 0.05 AND roa < 0.10     THEN 3
+            WHEN roa >= 0.20                THEN 1
+            WHEN roa >= 0.10 AND roa < 0.20 THEN 2
+            WHEN roa >= 0.05 AND roa < 0.10 THEN 3
             ELSE 4
         END AS profitability_score_roa,
-
-        -- Current Ratio Score 
         CASE
-            WHEN current_ratio >= 1.20                           THEN 1
-            WHEN current_ratio >= 1.00 AND current_ratio < 1.20  THEN 2
-            WHEN current_ratio >= 0.80 AND current_ratio < 1.00  THEN 3
+            WHEN current_ratio >= 1.20                          THEN 1
+            WHEN current_ratio >= 1.00 AND current_ratio < 1.20 THEN 2
+            WHEN current_ratio >= 0.80 AND current_ratio < 1.00 THEN 3
             ELSE 4
         END AS liquidity_score_current_ratio,
-
-        -- Debt-to-Equity Ratio Score
         CASE
-            WHEN de_ratio < 0.40                          THEN 1
-            WHEN de_ratio >= 0.40 AND de_ratio < 0.80     THEN 2
-            WHEN de_ratio >= 0.80 AND de_ratio < 1.20     THEN 3
+            WHEN de_ratio < 0.40                      THEN 1
+            WHEN de_ratio >= 0.40 AND de_ratio < 0.80 THEN 2
+            WHEN de_ratio >= 0.80 AND de_ratio < 1.20 THEN 3
             ELSE 4
         END AS solvency_score_de_ratio,
-
-        -- DSCR Score
         CASE
-            WHEN dscr > 1.50                       THEN 1
-            WHEN dscr >= 1.20 AND dscr <= 1.50     THEN 2
-            WHEN dscr >= 1.00 AND dscr <  1.20     THEN 3
+            WHEN dscr > 1.50                   THEN 1
+            WHEN dscr >= 1.20 AND dscr <= 1.50 THEN 2
+            WHEN dscr >= 1.00 AND dscr <  1.20 THEN 3
             ELSE 4
         END AS debt_service_coverage_score_dscr,
-
-        -- Governance Score 
         CASE
-            WHEN governance_value >= 10                            THEN 1
-            WHEN governance_value >= 5  AND governance_value < 10  THEN 2
-            WHEN governance_value >= 2  AND governance_value < 5   THEN 3
+            WHEN governance_value >= 10                          THEN 1
+            WHEN governance_value >= 5 AND governance_value < 10 THEN 2
+            WHEN governance_value >= 2 AND governance_value < 5  THEN 3
             ELSE 4
         END AS governance_score,
-
-        -- Sector Risk Score
         CASE
-            WHEN sector_risk_value >= 8                               THEN 1
-            WHEN sector_risk_value >= 5 AND sector_risk_value < 8     THEN 2
-            WHEN sector_risk_value >= 3 AND sector_risk_value < 5     THEN 3
+            WHEN sector_risk_value >= 8                             THEN 1
+            WHEN sector_risk_value >= 5 AND sector_risk_value < 8  THEN 2
+            WHEN sector_risk_value >= 3 AND sector_risk_value < 5  THEN 3
             ELSE 4
         END AS sector_risk_score
-
     FROM layer_1_ratio_calculation
 ),
-layer_3_final_scores AS(
-SELECT
-    application_id,
-
-    -- Financial Profile: raw weights are 10,10,10,15,10 (sum=55). Divide each by 55.
-    -- This ensures the sub-score itself is in 1.0–4.0 range before applying 55% weight.
-    ROUND(
-        profitability_score_ebitda_margin * (10.0 / 55) +
-        profitability_score_roa           * (10.0 / 55) +
-        liquidity_score_current_ratio     * (10.0 / 55) +
-        solvency_score_de_ratio           * (15.0 / 55) +
-        debt_service_coverage_score_dscr  * (10.0 / 55), 2) AS financial_profile_score,
-
-    -- Business Profile: raw weights are 20,15 (sum=35). Divide each by 35.
-    ROUND(
-        sector_risk_score * (20.0 / 35) +
-        governance_score  * (15.0 / 35), 2) AS business_profile_score,
-
-    -- Overall Risk Score: financial * 55% + business * 45%
-    -- Result will correctly land in the 1.0–4.0 range
-    ROUND(
-        (
+layer_3_final_scores AS (
+    SELECT
+        application_id,
+        ROUND(
             profitability_score_ebitda_margin * (10.0 / 55) +
             profitability_score_roa           * (10.0 / 55) +
             liquidity_score_current_ratio     * (10.0 / 55) +
             solvency_score_de_ratio           * (15.0 / 55) +
-            debt_service_coverage_score_dscr  * (10.0 / 55)
-        ) * 0.55
-        +
-        (
+            debt_service_coverage_score_dscr  * (10.0 / 55), 2) AS financial_profile_score,
+        ROUND(
             sector_risk_score * (20.0 / 35) +
-            governance_score  * (15.0 / 35)
-        ) * 0.45
-    , 2) AS overall_risk_score
+            governance_score  * (15.0 / 35), 2) AS business_profile_score,
+        ROUND(
+            (
+                profitability_score_ebitda_margin * (10.0 / 55) +
+                profitability_score_roa           * (10.0 / 55) +
+                liquidity_score_current_ratio     * (10.0 / 55) +
+                solvency_score_de_ratio           * (15.0 / 55) +
+                debt_service_coverage_score_dscr  * (10.0 / 55)
+            ) * 0.55
+            +
+            (
+                sector_risk_score * (20.0 / 35) +
+                governance_score  * (15.0 / 35)
+            ) * 0.45
+        , 2) AS overall_risk_score
     FROM layer_2_score_calculation
 )
 SELECT
-    -- Risk Level Label (Ministry of Finance Pakistan ranges)
-    application_id,
+    la.application_code,                                         
+    f.farmer_code,                                                
     financial_profile_score,
     business_profile_score,
     overall_risk_score,
@@ -476,20 +540,22 @@ SELECT
         WHEN overall_risk_score BETWEEN 1.5 AND 2.4 THEN 'Moderate Risk'
         WHEN overall_risk_score BETWEEN 2.5 AND 3.4 THEN 'Elevated Risk'
         ELSE 'High Risk'
-END AS risk_level
+    END AS risk_level
+FROM layer_3_final_scores ls
+JOIN LoanApplication la ON ls.application_id = la.application_id
+JOIN Farmer f ON la.farmer_id = f.farmer_id;                    
 
-FROM layer_3_final_scores;
 
 
--- ============================================================
 -- VIEW: Invoice Aging Analysis
--- 
--- ============================================================
+
 
 CREATE VIEW invoice_aging_analysis AS
 SELECT
+    f.farmer_code,                                          
     f.name                          AS farmer_name,
     f.cnic,
+    i.invoice_code,                                             
     i.invoice_no,
     i.amount,
     i.issue_date,
@@ -510,13 +576,11 @@ JOIN Farmer f ON i.farmer_id = f.farmer_id
 ORDER BY days_overdue DESC NULLS LAST;
 
 
--- ============================================================
 -- VIEW: Outstanding Balance Report
--- ============================================================
 
 CREATE VIEW outstanding_balance_report AS
 SELECT
-    f.farmer_id,
+    f.farmer_code,                                               
     f.name                              AS farmer_name,
     f.cnic,
     f.phone,
@@ -527,55 +591,45 @@ SELECT
 FROM Farmer f
 JOIN Invoice i ON f.farmer_id = i.farmer_id
 WHERE i.status_invoice = 'Overdue'
-GROUP BY f.farmer_id, f.name, f.cnic, f.phone
+GROUP BY f.farmer_code, f.name, f.cnic, f.phone
 ORDER BY total_outstanding_amount DESC;
---===============================================================
+
+
 -- FUNCTION: Loan Repayment Schedule Generator
--- Returns a month-by-month flat-rate repayment table
----==============================================================
+
 
 CREATE OR REPLACE FUNCTION generate_loan_schedule(
-    p_loan_amount NUMERIC,
-    p_interest_rate NUMERIC, -- e.g. 0.20 for 20%
-    p_months INT,
-    p_start_date DATE
+    p_loan_amount   NUMERIC,
+    p_interest_rate NUMERIC,
+    p_months        INT,
+    p_start_date    DATE
 )
 RETURNS TABLE (
-    month_no INT,
-    payment_date DATE,
+    month_no        INT,
+    payment_date    DATE,
     opening_balance NUMERIC,
-    principal NUMERIC,
-    interest NUMERIC,
-    installment NUMERIC,
+    principal       NUMERIC,
+    interest        NUMERIC,
+    installment     NUMERIC,
     closing_balance NUMERIC
 )
-LANGUAGE plpgsql
-AS $$
+LANGUAGE plpgsql AS $$
 BEGIN
     RETURN QUERY
     SELECT
         gs AS month_no,
         (p_start_date + (gs || ' month')::interval)::DATE AS payment_date,
-
         ROUND(p_loan_amount - (p_loan_amount / p_months) * (gs - 1), 2) AS opening_balance,
-
         ROUND(p_loan_amount / p_months, 2) AS principal,
-
         ROUND((p_loan_amount * p_interest_rate) / p_months, 2) AS interest,
-
-        ROUND(
-            (p_loan_amount / p_months)
-            + ((p_loan_amount * p_interest_rate) / p_months),
-        2) AS installment,
-
+        ROUND((p_loan_amount / p_months) + ((p_loan_amount * p_interest_rate) / p_months), 2) AS installment,
         ROUND(p_loan_amount - (p_loan_amount / p_months) * gs, 2) AS closing_balance
-
     FROM generate_series(1, p_months) gs;
 END;
 $$;
---===============================================================
--- LOAN STATUS UPADATE
---===============================================================
+
+
+-- TRIGGER: Loan Status Update
 CREATE OR REPLACE FUNCTION update_loan_status()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -597,42 +651,17 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
--- CREATE TRIGGER fraud_trigger
--- AFTER INSERT ON Transaction
--- FOR EACH ROW
--- EXECUTE FUNCTION detect_fraud();
 
 CREATE TRIGGER loan_payment_trigger
-AFTER INSERT ON Payment
-FOR EACH ROW
-EXECUTE FUNCTION update_loan_status();
--- DROP TRIGGER IF EXISTS loan_payment_trigger ON Payment;
---======================================================
----End of Schema
----======================================================
+    AFTER INSERT ON Payment
+    FOR EACH ROW EXECUTE FUNCTION update_loan_status();
 
-
---Loan Officer    ->  user_id prefix: LO_
---Credit Analyst ->  user_id prefix: CA_  
---admin to bank manager
-
-ALTER TABLE UserAccounts
-    ALTER COLUMN user_id DROP DEFAULT;
-
-ALTER TABLE UserAccounts
-    ALTER COLUMN user_id TYPE TEXT
-    USING user_id::TEXT;
-
-ALTER TABLE UserAccounts
-    DROP CONSTRAINT IF EXISTS chk_user_id_prefix;
-
-ALTER TABLE UserAccounts
-    ADD CONSTRAINT chk_user_id_prefix
-    CHECK (
-        user_id LIKE 'LO_%' OR
-        user_id LIKE 'CA_%' OR
-        user_id LIKE 'BM_%'
-    );
+-- USER ACCOUNTS: Prefixed IDs 
+ALTER TABLE UserAccounts ALTER COLUMN user_id DROP DEFAULT;
+ALTER TABLE UserAccounts ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT;
+ALTER TABLE UserAccounts DROP CONSTRAINT IF EXISTS chk_user_id_prefix;
+ALTER TABLE UserAccounts ADD CONSTRAINT chk_user_id_prefix
+    CHECK (user_id LIKE 'LO_%' OR user_id LIKE 'CA_%' OR user_id LIKE 'BM_%');
 
 CREATE OR REPLACE FUNCTION fn_generate_prefixed_user_id()
 RETURNS TRIGGER AS $$
@@ -650,28 +679,34 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-
 DROP TRIGGER IF EXISTS trg_useraccount_prefix_id ON UserAccounts;
-
 CREATE TRIGGER trg_useraccount_prefix_id
     BEFORE INSERT ON UserAccounts
     FOR EACH ROW EXECUTE FUNCTION fn_generate_prefixed_user_id();
 
+-- ROLES
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'role_loan_officer') THEN
+        CREATE ROLE role_loan_officer;
+    END IF;
 
---role based access and security thingy
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'role_credit_analyst') THEN
+        CREATE ROLE role_credit_analyst;
+    END IF;
 
-CREATE ROLE role_loan_officer;
-CREATE ROLE role_credit_analyst;
-CREATE ROLE role_bank_manager;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'role_bank_manager') THEN
+        CREATE ROLE role_bank_manager;
+    END IF;
+END
+$$;
+-- Loan Officer
+GRANT SELECT         ON Farmer          TO role_loan_officer;
+GRANT SELECT, INSERT ON LoanApplication TO role_loan_officer;
+GRANT SELECT         ON Loan            TO role_loan_officer;
+GRANT SELECT         ON FraudAlert      TO role_loan_officer;
 
---loan off.
-GRANT SELECT                                   ON Farmer          TO role_loan_officer;
-GRANT SELECT, INSERT                           ON LoanApplication TO role_loan_officer;
---GRANT UPDATE (status_application, updated_at) ON LoanApplication TO role_loan_officer;
-GRANT SELECT                                   ON Loan            TO role_loan_officer;
-GRANT SELECT                 ON FraudAlert     TO role_loan_officer;
-
---credit an
+-- Credit Analyst
 GRANT SELECT                 ON Transaction    TO role_credit_analyst;
 GRANT SELECT                 ON FraudAlert     TO role_credit_analyst;
 GRANT SELECT                 ON RiskScore      TO role_credit_analyst;
@@ -682,19 +717,18 @@ GRANT SELECT                 ON Loan           TO role_credit_analyst;
 GRANT SELECT                 ON Farmer         TO role_credit_analyst;
 GRANT SELECT, INSERT, UPDATE ON farmer_finance TO role_credit_analyst;
 
-
-
 GRANT SELECT ON risk_assessment_mof        TO role_credit_analyst;
 GRANT SELECT ON invoice_aging_analysis     TO role_credit_analyst;
 GRANT SELECT ON outstanding_balance_report TO role_credit_analyst;
 
---changed to bank manager
-GRANT SELECT ON FraudAlert TO role_bank_manager;
-GRANT SELECT ON LoanApplication TO role_bank_manager;
+-- Bank Manager
+GRANT SELECT                              ON FraudAlert      TO role_bank_manager;
+GRANT SELECT                              ON LoanApplication TO role_bank_manager;
 GRANT UPDATE (status_application, updated_at) ON LoanApplication TO role_bank_manager;
-GRANT SELECT ON Loan TO role_bank_manager;
+GRANT SELECT                              ON Loan            TO role_bank_manager;
 
---security (cyber sekorti)
+-- ROW LEVEL SECURITY (unchanged from your original)
+
 ALTER TABLE LoanApplication ENABLE ROW LEVEL SECURITY;
 ALTER TABLE Transaction     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE FraudAlert      ENABLE ROW LEVEL SECURITY;
@@ -709,62 +743,26 @@ ALTER TABLE farmer_finance  FORCE ROW LEVEL SECURITY;
 ALTER TABLE RiskScore       FORCE ROW LEVEL SECURITY;
 ALTER TABLE Invoice         FORCE ROW LEVEL SECURITY;
 
---app. access to only lo
-CREATE POLICY pol_loanapp_lo_select ON LoanApplication
-    FOR SELECT TO role_loan_officer
-    USING (TRUE);
+CREATE POLICY pol_loanapp_lo_select ON LoanApplication FOR SELECT TO role_loan_officer USING (TRUE);
+CREATE POLICY pol_loanapp_lo_insert ON LoanApplication FOR INSERT TO role_loan_officer WITH CHECK (TRUE);
+CREATE POLICY pol_fraud_lo_select   ON FraudAlert      FOR SELECT TO role_loan_officer USING (TRUE);
 
-CREATE POLICY pol_loanapp_lo_insert ON LoanApplication
-    FOR INSERT TO role_loan_officer
-    WITH CHECK (TRUE);
-
-CREATE POLICY pol_fraud_lo_select ON FraudAlert
-    FOR SELECT TO role_loan_officer
-    USING (TRUE);
-
---changed to bank manager
 CREATE POLICY pol_loanapp_bm_update ON LoanApplication
     FOR UPDATE TO role_bank_manager
     USING  (status_application = 'Pending')
     WITH CHECK (status_application IN ('Approved', 'Rejected'));
+CREATE POLICY pol_fraud_bm_select   ON FraudAlert FOR SELECT TO role_bank_manager USING (TRUE);
 
-CREATE POLICY pol_fraud_bm_select ON FraudAlert
-    FOR SELECT TO role_bank_manager
-    USING (TRUE);
+CREATE POLICY pol_trans_ca_select   ON Transaction   FOR SELECT TO role_credit_analyst USING (TRUE);
+CREATE POLICY pol_fraud_ca_select   ON FraudAlert    FOR SELECT TO role_credit_analyst USING (TRUE);
+CREATE POLICY pol_risk_ca_select    ON RiskScore     FOR SELECT TO role_credit_analyst USING (TRUE);
+CREATE POLICY pol_invoice_ca_select ON Invoice       FOR SELECT TO role_credit_analyst USING (TRUE);
+CREATE POLICY pol_ff_ca_all         ON farmer_finance FOR ALL   TO role_credit_analyst USING (TRUE) WITH CHECK (TRUE);
+CREATE POLICY pol_bank_manager_fraud ON FraudAlert   FOR ALL    TO role_bank_manager   USING (TRUE) WITH CHECK (TRUE);
 
---analyst only read
-CREATE POLICY pol_trans_ca_select ON Transaction
-    FOR SELECT TO role_credit_analyst
-    USING (TRUE);
+-- ACCESS CONTROL FUNCTION 
 
-CREATE POLICY pol_fraud_ca_select ON FraudAlert
-    FOR SELECT TO role_credit_analyst
-    USING (TRUE);
-
-CREATE POLICY pol_risk_ca_select ON RiskScore
-    FOR SELECT TO role_credit_analyst
-    USING (TRUE);
-
-CREATE POLICY pol_invoice_ca_select ON Invoice
-    FOR SELECT TO role_credit_analyst
-    USING (TRUE);
-
---analyst access finance stuff
-CREATE POLICY pol_ff_ca_all ON farmer_finance
-    FOR ALL TO role_credit_analyst
-    USING (TRUE)
-    WITH CHECK (TRUE);
-
---ye hum hain jo sab dekhte hain 
-
-CREATE POLICY pol_bank_manager_fraud ON FraudAlert
-    FOR ALL TO role_bank_manager USING (TRUE) WITH CHECK (TRUE);
-
---uhh error araha tha then ai told me shared access bhi hona chahiye so yeah 
-CREATE OR REPLACE FUNCTION fn_check_access(
-    p_user_id         TEXT,
-    p_required_prefix TEXT
-)
+CREATE OR REPLACE FUNCTION fn_check_access(p_user_id TEXT, p_required_prefix TEXT)
 RETURNS VOID AS $$
 DECLARE
     v_role_name TEXT :=
@@ -778,90 +776,155 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM UserAccounts WHERE user_id = p_user_id) THEN
         RAISE EXCEPTION 'Authentication Failed: user "%" not found.', p_user_id;
     END IF;
-
     IF LEFT(p_user_id, 2) != p_required_prefix THEN
         RAISE EXCEPTION
-            'Authorization Failed: this operation requires % access. '
-            'user_id "%" does not carry that role.',
+            'Authorization Failed: this operation requires % access. user_id "%" does not carry that role.',
             v_role_name, p_user_id;
     END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
---loan shark ko jo allow hai
+-- STORED PROCEDURES
+
+-- Loan Officer: submit using farmer_code instead of farmer_id UUID
 CREATE OR REPLACE PROCEDURE lo_submit_application(
-    p_user_id   TEXT,
-    p_farmer_id UUID,
-    p_amount    NUMERIC,
-    p_purpose   TEXT DEFAULT NULL
+    p_user_id     TEXT,
+    p_farmer_code TEXT,          -- ← was UUID, now 'FARM-000001'
+    p_amount      NUMERIC,
+    p_purpose     TEXT DEFAULT NULL
 )
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_farmer_id UUID;
 BEGIN
     PERFORM fn_check_access(p_user_id, 'LO');
 
-    IF NOT EXISTS (SELECT 1 FROM Farmer WHERE farmer_id = p_farmer_id) THEN
-        RAISE EXCEPTION 'Farmer "%" does not exist.', p_farmer_id;
+    -- Resolve farmer_code → farmer_id
+    SELECT farmer_id INTO v_farmer_id
+    FROM Farmer WHERE farmer_code = p_farmer_code;
+
+    IF v_farmer_id IS NULL THEN
+        RAISE EXCEPTION 'Farmer code "%" not found.', p_farmer_code;
     END IF;
 
     IF EXISTS (
         SELECT 1 FROM LoanApplication
-        WHERE farmer_id          = p_farmer_id
-          AND status_application = 'Pending'
+        WHERE farmer_id = v_farmer_id AND status_application = 'Pending'
     ) THEN
         RAISE EXCEPTION
-            'Farmer "%" already has a Pending application. '
-            'Resolve it before submitting a new one.', p_farmer_id;
+            'Farmer "%" already has a Pending application. Resolve it before submitting a new one.',
+            p_farmer_code;
     END IF;
 
     INSERT INTO LoanApplication (farmer_id, requested_amount, purpose)
-    VALUES (p_farmer_id, p_amount, p_purpose);
+    VALUES (v_farmer_id, p_amount, p_purpose);
 
-    RAISE NOTICE 'Application submitted for farmer %.', p_farmer_id;
+    RAISE NOTICE 'Application submitted for farmer %.', p_farmer_code;
 END;
 $$;
 
-
+-- Bank Manager: approve/reject using application_code instead of UUID
 CREATE OR REPLACE PROCEDURE bm_update_app_status(
-    p_user_id        TEXT,
-    p_application_id UUID,
-    p_new_status     app_status
+    p_user_id    TEXT,
+    p_app_code   TEXT,          
+    p_new_status app_status
 )
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_application_id UUID;
 BEGIN
     PERFORM fn_check_access(p_user_id, 'BM');
 
     IF p_new_status NOT IN ('Approved', 'Rejected') THEN
-        RAISE EXCEPTION
-            'Invalid target status "%". Only Approved or Rejected are allowed.',
-            p_new_status;
+        RAISE EXCEPTION 'Invalid target status "%". Only Approved or Rejected are allowed.', p_new_status;
+    END IF;
+
+    -- Resolve application_code → application_id
+    SELECT application_id INTO v_application_id
+    FROM LoanApplication WHERE application_code = p_app_code;
+
+    IF v_application_id IS NULL THEN
+        RAISE EXCEPTION 'Application code "%" not found.', p_app_code;
     END IF;
 
     IF NOT EXISTS (
         SELECT 1 FROM LoanApplication
-        WHERE application_id    = p_application_id
-          AND status_application = 'Pending'
+        WHERE application_id = v_application_id AND status_application = 'Pending'
     ) THEN
-        RAISE EXCEPTION
-            'Application "%" not found or is not in Pending status.',
-            p_application_id;
+        RAISE EXCEPTION 'Application "%" is not in Pending status.', p_app_code;
     END IF;
 
     UPDATE LoanApplication
-       SET status_application = p_new_status
-     WHERE application_id = p_application_id;
+    SET status_application = p_new_status
+    WHERE application_id = v_application_id;
 
-    RAISE NOTICE 'Application % updated to %.', p_application_id, p_new_status;
+    RAISE NOTICE 'Application % updated to %.', p_app_code, p_new_status;
 END;
 $$;
 
+-- Credit Analyst: upsert finance using farmer_code
+CREATE OR REPLACE PROCEDURE ca_upsert_farmer_finance(
+    p_user_id         TEXT,
+    p_farmer_code     TEXT,       
+    p_reported_date   DATE,
+    p_annual_revenue  NUMERIC,
+    p_op_expenses     NUMERIC,
+    p_net_income      NUMERIC,
+    p_total_assets    NUMERIC,
+    p_cash_on_hand    NUMERIC,
+    p_current_assets  NUMERIC,
+    p_current_liabs   NUMERIC,
+    p_total_debt      NUMERIC,
+    p_annual_debt_svc NUMERIC
+)
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_farmer_id UUID;
+BEGIN
+    PERFORM fn_check_access(p_user_id, 'CA');
 
+    -- Resolve farmer_code → farmer_id
+    SELECT farmer_id INTO v_farmer_id
+    FROM Farmer WHERE farmer_code = p_farmer_code;
+
+    IF v_farmer_id IS NULL THEN
+        RAISE EXCEPTION 'Farmer code "%" not found.', p_farmer_code;
+    END IF;
+
+    INSERT INTO farmer_finance (
+        farmer_id, reported_date,
+        annual_revenue, operating_expenses, net_income,
+        total_assets, cash_on_hand, current_assets,
+        current_liabilities, total_debt, annual_debt_service
+    )
+    VALUES (
+        v_farmer_id, p_reported_date,
+        p_annual_revenue, p_op_expenses, p_net_income,
+        p_total_assets, p_cash_on_hand, p_current_assets,
+        p_current_liabs, p_total_debt, p_annual_debt_svc
+    )
+    ON CONFLICT ON CONSTRAINT uq_farmer_finance_date DO UPDATE SET
+        annual_revenue      = EXCLUDED.annual_revenue,
+        operating_expenses  = EXCLUDED.operating_expenses,
+        net_income          = EXCLUDED.net_income,
+        total_assets        = EXCLUDED.total_assets,
+        cash_on_hand        = EXCLUDED.cash_on_hand,
+        current_assets      = EXCLUDED.current_assets,
+        current_liabilities = EXCLUDED.current_liabilities,
+        total_debt          = EXCLUDED.total_debt,
+        annual_debt_service = EXCLUDED.annual_debt_service;
+
+    RAISE NOTICE 'Farmer finance record saved for farmer % on %.', p_farmer_code, p_reported_date;
+END;
+$$;
+
+-- READ FUNCTIONS: Return business codes 
+
+-- Loan Officer: view applications (codes visible, no UUIDs)
 CREATE OR REPLACE FUNCTION lo_get_applications(p_user_id TEXT)
 RETURNS TABLE (
-    application_id     UUID,
+    application_code   VARCHAR(20),
+    farmer_code        VARCHAR(20),
     farmer_name        VARCHAR(150),
     cnic               VARCHAR(15),
     requested_amount   NUMERIC,
@@ -870,15 +933,13 @@ RETURNS TABLE (
     status_application app_status,
     fraud_alert        BOOLEAN
 )
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     PERFORM fn_check_access(p_user_id, 'LO');
-
     RETURN QUERY
     SELECT
-        la.application_id,
+        la.application_code,
+        f.farmer_code,
         f.name,
         f.cnic,
         la.requested_amount,
@@ -892,69 +953,73 @@ BEGIN
 END;
 $$;
 
---jo ca ko allow hai karna
+-- Credit Analyst: view transactions (codes visible)
 CREATE OR REPLACE FUNCTION ca_get_transactions(p_user_id TEXT)
 RETURNS TABLE (
-    transaction_id UUID,
-    farmer_name    VARCHAR(150),
-    type           trans_type,
-    amount         NUMERIC,
-    date           DATE,
-    status_trans   trans_status
+    transaction_code VARCHAR(20),
+    farmer_code      VARCHAR(20),
+    farmer_name      VARCHAR(150),
+    loan_code        VARCHAR(20),
+    type             trans_type,
+    amount           NUMERIC,
+    transaction_date DATE,
+    status_trans     trans_status
 )
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     PERFORM fn_check_access(p_user_id, 'CA');
-
     RETURN QUERY
     SELECT
-        t.transaction_id,
+        t.transaction_code,
+        f.farmer_code,
         f.name,
+        l.loan_code,
         t.type,
         t.amount,
         t.transaction_date,
         t.status_trans
     FROM Transaction t
     JOIN Farmer f ON t.farmer_id = f.farmer_id
+    LEFT JOIN Loan l ON t.loan_id = l.loan_id
     ORDER BY t.transaction_date DESC;
 END;
 $$;
 
 
+-- Credit Analyst: view fraud alerts (codes visible)
 CREATE OR REPLACE FUNCTION ca_get_fraud_alerts(p_user_id TEXT)
 RETURNS TABLE (
-    alert_id       UUID,
-    transaction_id UUID,
-    application_id UUID,
-    reason         TEXT,
-    flag_date      DATE,
-    status_fraud   fraud_status
+    alert_id         UUID,
+    transaction_code VARCHAR(20),
+    application_code VARCHAR(20),
+    reason           TEXT,
+    flag_date        DATE,
+    status_fraud     fraud_status
 )
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     PERFORM fn_check_access(p_user_id, 'CA');
-
     RETURN QUERY
     SELECT
         fa.alert_id,
-        fa.transaction_id,
-        fa.application_id,
+        t.transaction_code,
+        la.application_code,
         fa.reason,
         fa.flag_date,
         fa.status_fraud
     FROM FraudAlert fa
+    LEFT JOIN Transaction     t  ON fa.transaction_id  = t.transaction_id
+    LEFT JOIN LoanApplication la ON fa.application_id  = la.application_id
     ORDER BY fa.flag_date DESC;
 END;
 $$;
 
 
+-- Credit Analyst: view risk scores (codes visible)
 CREATE OR REPLACE FUNCTION ca_get_risk_scores(p_user_id TEXT)
 RETURNS TABLE (
     risk_id           UUID,
+    farmer_code       VARCHAR(20),
     farmer_name       VARCHAR(150),
     sector_risk_value NUMERIC,
     governance_value  NUMERIC,
@@ -962,15 +1027,13 @@ RETURNS TABLE (
     calculated_date   DATE,
     remarks           TEXT
 )
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     PERFORM fn_check_access(p_user_id, 'CA');
-
     RETURN QUERY
     SELECT
         rs.risk_id,
+        f.farmer_code,
         f.name,
         rs.sector_risk_value,
         rs.governance_value,
@@ -984,28 +1047,31 @@ END;
 $$;
 
 
+-- Credit Analyst: risk assessment (codes visible, no UUIDs)
 CREATE OR REPLACE FUNCTION ca_get_risk_assessment(p_user_id TEXT)
 RETURNS TABLE (
-    application_id          UUID,
+    application_code        VARCHAR(20),
+    farmer_code             VARCHAR(20),
     financial_profile_score NUMERIC,
     business_profile_score  NUMERIC,
     overall_risk_score      NUMERIC,
     risk_level              TEXT
 )
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     PERFORM fn_check_access(p_user_id, 'CA');
-    RETURN QUERY SELECT * FROM risk_assessment_mof;
+    RETURN QUERY SELECT * FROM risk_assessment_mof;  -- view already exposes codes
 END;
 $$;
 
 
+-- Credit Analyst: invoice aging (codes visible)
 CREATE OR REPLACE FUNCTION ca_get_invoice_aging(p_user_id TEXT)
 RETURNS TABLE (
+    farmer_code       VARCHAR(20),
     farmer_name       VARCHAR(150),
     cnic              VARCHAR(15),
+    invoice_code      VARCHAR(20),
     invoice_no        VARCHAR(50),
     amount            NUMERIC,
     issue_date        DATE,
@@ -1015,19 +1081,32 @@ RETURNS TABLE (
     status_invoice    invoice_status,
     aging_bracket     TEXT
 )
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     PERFORM fn_check_access(p_user_id, 'CA');
-    RETURN QUERY SELECT * FROM invoice_aging_analysis;
+    RETURN QUERY
+    SELECT
+        farmer_code,
+        farmer_name,
+        cnic,
+        invoice_code,
+        invoice_no,
+        amount,
+        issue_date,
+        due_date,
+        days_since_issued::INTEGER,
+        days_overdue::INTEGER,
+        status_invoice,
+        aging_bracket
+    FROM invoice_aging_analysis;
 END;
 $$;
 
 
+-- Credit Analyst: outstanding balances (codes visible)
 CREATE OR REPLACE FUNCTION ca_get_outstanding_balances(p_user_id TEXT)
 RETURNS TABLE (
-    farmer_id                UUID,
+    farmer_code              VARCHAR(20),
     farmer_name              VARCHAR(150),
     cnic                     VARCHAR(15),
     phone                    VARCHAR(20),
@@ -1036,64 +1115,66 @@ RETURNS TABLE (
     oldest_due_date          DATE,
     max_days_overdue         INTEGER
 )
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     PERFORM fn_check_access(p_user_id, 'CA');
-    RETURN QUERY SELECT * FROM outstanding_balance_report;
+    RETURN QUERY
+    SELECT
+        farmer_code,
+        farmer_name,
+        cnic,
+        phone,
+        total_overdue_invoices,
+        total_outstanding_amount,
+        oldest_due_date,
+        max_days_overdue::INTEGER
+    FROM outstanding_balance_report;
 END;
 $$;
 
 
-CREATE OR REPLACE PROCEDURE ca_upsert_farmer_finance(
-    p_user_id         TEXT,
-    p_farmer_id       UUID,
-    p_reported_date   DATE,
-    p_annual_revenue  NUMERIC,
-    p_op_expenses     NUMERIC,
-    p_net_income      NUMERIC,
-    p_total_assets    NUMERIC,
-    p_cash_on_hand    NUMERIC,
-    p_current_assets  NUMERIC,
-    p_current_liabs   NUMERIC,
-    p_total_debt      NUMERIC,
-    p_annual_debt_svc NUMERIC
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-    PERFORM fn_check_access(p_user_id, 'CA');
 
-    IF NOT EXISTS (SELECT 1 FROM Farmer WHERE farmer_id = p_farmer_id) THEN
-        RAISE EXCEPTION 'Farmer "%" not found.', p_farmer_id;
-    END IF;
+-- SAMPLE QUERIES
 
-    INSERT INTO farmer_finance (
-        farmer_id,           reported_date,
-        annual_revenue,      operating_expenses, net_income,
-        total_assets,        cash_on_hand,       current_assets,
-        current_liabilities, total_debt,         annual_debt_service
-    )
-    VALUES (
-        p_farmer_id,         p_reported_date,
-        p_annual_revenue,    p_op_expenses,      p_net_income,
-        p_total_assets,      p_cash_on_hand,     p_current_assets,
-        p_current_liabs,     p_total_debt,       p_annual_debt_svc
-    )
-    ON CONFLICT ON CONSTRAINT uq_farmer_finance_date DO UPDATE SET
-        annual_revenue      = EXCLUDED.annual_revenue,
-        operating_expenses  = EXCLUDED.operating_expenses,
-        net_income          = EXCLUDED.net_income,
-        total_assets        = EXCLUDED.total_assets,
-        cash_on_hand        = EXCLUDED.cash_on_hand,
-        current_assets      = EXCLUDED.current_assets,
-        current_liabilities = EXCLUDED.current_liabilities,
-        total_debt          = EXCLUDED.total_debt,
-        annual_debt_service = EXCLUDED.annual_debt_service;
+-- Loan Officer submits an application using farmer code
+-- CALL lo_submit_application('LO_abc123', 'FARM-000007', 250000, 'Wheat crop cycle');
 
-    RAISE NOTICE 'Farmer finance record saved for farmer % on %.', p_farmer_id, p_reported_date;
-END;
-$$;
+-- Bank Manager approves using application code
+-- CALL bm_update_app_status('BM_xyz789', 'APP-000005', 'Approved');
 
+-- Credit Analyst saves financial data using farmer code
+-- CALL ca_upsert_farmer_finance('CA_def456', 'FARM-000007', '2024-12-31',
+--      1200000, 800000, 400000, 5000000, 50000, 600000, 400000, 1000000, 120000);
+
+-- Loan Officer views all pending applications (all codes, no UUIDs)
+-- SELECT * FROM lo_get_applications('LO_abc123') WHERE status_application = 'Pending';
+
+-- Credit Analyst checks risk for a specific farmer by code
+-- SELECT * FROM ca_get_risk_assessment('CA_def456') WHERE farmer_code = 'FARM-000007';
+
+-- Credit Analyst checks overdue invoices
+-- SELECT * FROM ca_get_invoice_aging('CA_def456') WHERE aging_bracket = 'Over 90 Days Overdue';
+
+-- Credit Analyst checks fraud alerts by transaction code
+-- SELECT * FROM ca_get_fraud_alerts('CA_def456') WHERE transaction_code = 'TXN-000012';
+
+-- Loan repayment schedule using the existing function (by loan values)
+-- SELECT * FROM generate_loan_schedule(500000, 0.20, 12, '2024-01-01');
+
+-- Bank Manager looks up a bank by code on the portal
+-- SELECT bank_code, bank_name, branch_id, contact_number FROM Banks WHERE bank_code = 'BANK-000001';
+
+-- Loan Officer looks up a farmer's account by account code on the portal
+-- SELECT account_code, account_number, balance, is_active FROM FarmerAccount WHERE account_code = 'ACC-000001';
+
+-- Loan Officer views all active accounts for a farmer using farmer code
+-- SELECT fa.account_code, fa.account_number, fa.balance, b.bank_code, b.bank_name
+-- FROM FarmerAccount fa
+-- JOIN Farmer f  ON fa.farmer_id = f.farmer_id
+-- JOIN Banks  b  ON fa.bank_id   = b.bank_id
+-- WHERE f.farmer_code = 'FARM-000001' AND fa.is_active = TRUE;
+
+
+-- ============================================================
+-- END OF SCHEMA
+-- ============================================================
