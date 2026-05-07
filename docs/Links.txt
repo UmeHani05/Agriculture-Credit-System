@@ -1,0 +1,5 @@
+FIGAM BOARD
+https://www.figma.com/board/2XW20kmkmaJOFzm79wBGrc/AGRICREDIT--SYSTEM?node-id=0-1&t=3v5PCQXqzVI9LXdG-1
+
+JIRA:
+https://agricreditsystem.atlassian.net/jira/software/projects/KAN/boards/1?atlOrigin=eyJpIjoiNjgxNzViMTIzZWM1NDFmNWIzNTZkZmU3OGIzYzBiNTUiLCJwIjoiaiJ9
